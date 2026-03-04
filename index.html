@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>吟游诗人 Cat | MiLab 仪表盘</title>
+    <!-- 基础渲染引擎：React & Tailwind -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 衬线字体：Noto Serif SC -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;700&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; background-color: #05070a; overflow: hidden; color: #e2e8f0; }
+        .font-serif-poetic { font-family: 'Noto Serif SC', serif; }
+        
+        /* 自定义微型滚动条 */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        
+        /* 歌词纵向滚动动画 */
+        @keyframes marqueeVertical { 0% { transform: translateY(0%); } 100% { transform: translateY(-50%); } }
+        .animate-marquee-v { animation: marqueeVertical 50s linear infinite; }
+        
+        /* 纵向渐隐遮罩 */
+        .marquee-mask-v {
+            mask-image: linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
+            -webkit-mask-image: linear-gradient(to bottom, transparent, black 25%, black 75%, transparent);
+        }
+        
+        /* 唱片旋转动画 */
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .animate-spin-slow { animation: spin 8s linear infinite; }
+        
+        .glass-panel { backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
+        
+        /* 防止文本溢出对齐的工具类 */
+        .no-wrap-text { white-space: nowrap; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // 内置 SVG 图标组件，确保零依赖报错
+        const Icons = {
+          Cpu: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+          ),
+          Globe: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>
+          ),
+          Activity: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          ),
+          QrCode: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>
+          ),
+          Camera: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+          ),
+          Terminal: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+          ),
+          Github: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></svg>
+          ),
+          Box: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          ),
+          UserCheck: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>
+          ),
+          ArrowUpRight: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+          ),
+          ExternalLink: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          ),
+          TrendingUp: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          ),
+          Layers: ({size=24, className=""}) => (
+            <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="12 2 2 7 12 12 22 7 12 2"/><polygon points="2 12 12 17 22 12"/><polygon points="2 17 12 22 22 17"/></svg>
+          )
+        };
+
+        const App = () => {
+          const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+          const containerRef = useRef(null);
+
+          useEffect(() => {
+            const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+            window.addEventListener('mousemove', handleMouseMove);
+            return () => window.removeEventListener('mousemove', handleMouseMove);
+          }, []);
+
+          const signalSociety = [
+            "https://i.imgur.com/o3DofoJ.jpeg", "https://i.imgur.com/J9bos5W.jpeg", 
+            "https://i.imgur.com/O2C3gnu.jpeg", "https://i.imgur.com/RlwWmCM.jpeg", 
+            "https://i.imgur.com/c0Zb49W.jpeg", "https://i.imgur.com/msrkbB8.jpeg", 
+            "https://i.imgur.com/tKy8MXK.jpeg", "https://i.imgur.com/MCt7h79.jpeg"  
+          ];
+
+          const githubProjects = [
+            { name: "WorkLogBot", desc: "生命日志自动化重构。将碎片化的时间流，凝固为可检索晶体。" },
+            { name: "APIDocGen", desc: "逻辑诗意化文档翻译。让冰冷接口转化为具有叙事感的对话。" },
+            { name: "DigitalGrave", desc: "赛博遗迹。为消亡数据立碑，探讨数字生命的终极去向。" }
+          ];
+
+          const lyrics = [
+            "In this coded world we live in lines / 在这被编码的世界 我们活在一行一行",
+            "Algorithms making sense of our minds / 算法试着解释我们的心与脑",
+            "Patterns decisions they guide my way / 模式与判断牵引我往前走",
+            "But can they match the heart I can't obey / 可它们能匹配那颗我不肯服从的心吗",
+            "For love for love they match us / 因为爱 因为爱 他们把我们配对",
+            "In algorithms they find our trust / 在算法里 他们找到信任",
+            "But what is real when numbers decide / 可当数字替我们做决定 真实还剩多少",
+            "Are we just data no place to hide / 我们只是数据吗 无处可躲",
+            "I am a query you are a result / 我是一次查询 而你是一个结果",
+            "Matched by systems love's insult / 被系统撮合 这爱像一种冒犯",
+            "Coded in patterns but lost in the dream / 写进模式里 却在梦里走丢",
+            "Is this connection real or just a machine / 这连接是真的 还是一台机器",
+            "We're more than just code we're more than just streams / 我们不只是代码 我们也不只是流",
+            "But the algorithm knows our hopes and dreams / 可算法知道我们的希望与梦",
+            "Can love survive in this tech-filled world / 爱能在这科技填满的世界里存活吗",
+            "Or is the match a connection that's been sold / 还是这场匹配 只是被卖掉的连接"
+          ];
+
+          return (
+            <div ref={containerRef} className="min-h-screen bg-[#05070a] text-slate-200 font-sans selection:bg-indigo-500/50 overflow-hidden relative flex flex-col">
+              {/* 背景视觉层 */}
+              <div className="fixed inset-0 z-0">
+                <div className="absolute inset-0 opacity-[0.18] mix-blend-screen bg-cover bg-center transition-transform duration-[100s] ease-linear scale-110" 
+                     style={{ backgroundImage: `url(${signalSociety[2]})` }}></div>
+                <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-slate-800/10 rounded-full blur-[150px]"></div>
+                <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-blue-900/10 rounded-full blur-[150px]"></div>
+                <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.12] mix-blend-overlay"></div>
+              </div>
+
+              {/* 全局聚光灯随动 */}
+              <div className="pointer-events-none fixed inset-0 z-50 transition-opacity duration-300"
+                   style={{ background: `radial-gradient(800px circle at ${mousePos.x}px ${mousePos.y}px, rgba(255,255,255,0.04), transparent 40%)` }} />
+
+              {/* 系统顶栏 */}
+              <nav className="absolute top-0 w-full z-40 px-8 py-4 flex justify-between items-center pointer-events-none">
+                <div className="glass-panel px-4 py-2 rounded-full flex items-center gap-3 bg-white/5 border border-white/10 shadow-lg pointer-events-auto">
+                  <div className="w-6 h-6 bg-white text-black rounded-full flex items-center justify-center font-bold text-xs">M</div>
+                  <span className="font-mono text-xs tracking-widest uppercase">MiLab_OS</span>
+                </div>
+                <div className="glass-panel px-4 py-2 rounded-full flex items-center gap-4 bg-white/5 border border-white/10 text-xs font-mono shadow-lg pointer-events-auto">
+                   <span className="flex items-center gap-2"><Icons.Globe size={14} className="text-slate-400"/> SH_Node</span>
+                   <span className="flex items-center gap-2"><Icons.Activity size={14} className="text-slate-400"/> Synced</span>
+                </div>
+              </nav>
+
+              {/* 仪表盘内容核心 */}
+              <main className="relative z-10 w-full flex-1 p-8 pt-24 pb-4 flex flex-col md:flex-row gap-6 max-w-[120rem] mx-auto overflow-hidden">
+                
+                {/* 第一列：身份与连接 (32%) */}
+                <div className="w-full md:w-[32%] flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar pr-2 pb-10">
+                  <div className="glass-panel rounded-[2rem] p-8 bg-white/[0.02] border border-white/10 shadow-2xl relative overflow-hidden group hover:border-white/20 transition-all flex flex-col shrink-0">
+                    <div className="absolute inset-0 opacity-[0.06] mix-blend-screen bg-cover bg-center transition-transform duration-1000 group-hover:scale-105" style={{ backgroundImage: `url(${signalSociety[1]})` }}></div>
+                    <div className="absolute top-0 right-0 p-8 opacity-5"><Icons.Cpu size={128} className="text-slate-200" /></div>
+                    <div className="flex justify-between items-start mb-8 relative z-10">
+                      <div className="min-w-0 pr-4">
+                         <h1 className="text-4xl xl:text-5xl font-bold tracking-tighter mb-2 text-white no-wrap-text">吟游诗人 Cat</h1>
+                         <p className="text-sm font-mono text-slate-400 uppercase tracking-widest truncate">Principal / X. Hao</p>
+                      </div>
+                      <div className="w-4 h-4 rounded-full bg-slate-800 border border-slate-500 flex items-center justify-center shrink-0">
+                         <div className="w-1.5 h-1.5 rounded-full bg-slate-300 animate-pulse"></div>
+                      </div>
+                    </div>
+                    <div className="space-y-2.5 text-xs leading-relaxed text-slate-300 font-serif-poetic relative z-10">
+                      <p>我来自美丽的豫南。</p>
+                      <p>家族在郑州孕育了「商兴置业」与「蒿氏实业」的多元化商业矩阵，我很早就习惯从商业去理解现实世界。</p>
+                      <p>长大后，我选择成为游戏设计师和关卡设计师，为玩家创作虚拟世界。</p>
+                      <div className="h-1"></div> 
+                      <p>关卡设计其实很像在搭建一个小世界：路径、节奏、空间，玩家会在哪里停下，又会在哪里被引导继续前进。</p>
+                      <p>2025 年，我选择了小岛秀夫这样传奇游戏设计师走过的路，去City Walk和思考寻找灵感。</p>
+                      <p>我在上海的每一寸土地丈量，观察技术、城市、AI与人。</p>
+                      <p>在加速主义的轰鸣之中，也试着去捕捉盖亚学说那微弱的呼吸。</p>
+                      <div className="p-4 rounded-xl bg-white/5 border border-white/10 mt-3 shadow-inner">
+                         <p className="text-slate-200 font-bold text-[13px] leading-relaxed tracking-tight no-wrap-text">
+                           2026 年，我回到科技行业。<br/>
+                           在比特与代码的缝隙之间建立 Web4 的物理锚点。<br/>
+                           以游戏设计师的方式，去挑战新时代。
+                         </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="glass-panel rounded-[2rem] p-3.5 bg-white/[0.02] border border-white/10 shadow-2xl flex items-center gap-4 hover:bg-white/5 transition-all group relative overflow-hidden h-[140px] shrink-0">
+                     <div className="absolute inset-0 opacity-[0.05] bg-cover bg-center transition-transform duration-1000 group-hover:scale-105" style={{ backgroundImage: `url(${signalSociety[6]})` }}></div>
+                     <div className="h-full aspect-square bg-white p-1.5 rounded-2xl shrink-0 overflow-hidden shadow-inner relative z-10">
+                       <img src="https://i.imgur.com/4wUrlNM.png" className="w-full h-full object-cover group-hover:scale-105 transition-transform" alt="QR" />
+                     </div>
+                     <div className="flex flex-col justify-center flex-1 relative z-10 pr-2">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <Icons.QrCode size={14} className="text-indigo-400" />
+                          <span className="font-mono text-[9px] uppercase tracking-widest text-slate-400">WeChat Pass</span>
+                        </div>
+                        <p className="text-sm font-bold text-white mb-1 tracking-wide">AboveTiger</p>
+                        <p className="text-[9px] text-slate-500 font-serif-poetic leading-snug">扫码直连<br/>或搜索微信号添加</p>
+                     </div>
+                  </div>
+                </div>
+
+                {/* 第二列：观察与实践 (40%) */}
+                <div className="w-full md:w-[40%] flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar pr-2 pb-10">
+                  <div className="glass-panel rounded-[2rem] p-6 bg-white/[0.02] border border-white/10 shadow-2xl flex flex-col shrink-0 relative overflow-hidden text-white">
+                     <div className="absolute inset-0 opacity-[0.03] bg-cover bg-center" style={{ backgroundImage: `url(${signalSociety[0]})` }}></div>
+                     <div className="flex items-center justify-between mb-4 relative z-10 shrink-0">
+                        <div className="flex items-center gap-2">
+                           <Icons.Camera size={16} className="text-slate-300" />
+                           <h3 className="font-bold tracking-wider text-white uppercase text-sm">《信号社会》观察</h3>
+                        </div>
+                        <span className="text-[10px] font-mono bg-slate-800/50 border border-slate-600/50 text-slate-300 px-2 py-1 rounded-full uppercase">Visual Data</span>
+                     </div>
+                     <p className="text-xs text-slate-400 font-serif-poetic mb-4 italic relative z-10 shrink-0 leading-relaxed">
+                       权力排成直线，人群涌成浪潮。一次从神经网络到金融波动，从城市孤独到集体觉醒的结构拆解。
+                     </p>
+                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 relative z-10">
+                        {signalSociety.map((url, idx) => (
+                          <div key={idx} className="aspect-[3/4.2] rounded-xl overflow-hidden bg-black/50 border border-white/5 relative group shadow-sm hover:shadow-lg transition-all cursor-pointer">
+                            <img src={url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="Art"/>
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                               <span className="font-mono text-[9px] text-slate-300 tracking-widest uppercase">SYS_0{idx+1}</span>
+                            </div>
+                          </div>
+                        ))}
+                     </div>
+                  </div>
+
+                  <div className="glass-panel rounded-[2rem] p-6 bg-white/[0.02] border border-white/10 shadow-2xl relative overflow-hidden flex flex-col shrink-0 text-white">
+                     <div className="absolute inset-0 opacity-[0.06] bg-cover bg-center transition-transform duration-1000" style={{ backgroundImage: `url(${signalSociety[3]})` }}></div>
+                     <div className="relative z-10 flex flex-col h-full">
+                         <div className="flex items-center justify-between mb-4 shrink-0">
+                            <div className="flex items-center gap-2">
+                               <Icons.Terminal size={16} className="text-slate-400" />
+                               <h3 className="font-bold tracking-wider text-sm text-white uppercase">Vibe coder practice</h3>
+                            </div>
+                            <span className="text-[10px] font-mono text-slate-500 uppercase tracking-widest text-white">Evolution</span>
+                         </div>
+                         <p className="text-xs text-slate-400 font-serif-poetic mb-6 italic relative z-10 shrink-0 leading-relaxed">
+                           放弃过去，重新出发。拥抱AI技术，不变的是追求极致的心和游戏设计师的抱负。
+                         </p>
+                         <div className="grid grid-cols-2 gap-6 flex-1 text-white">
+                            <div className="flex flex-col gap-3">
+                               <div className="flex items-center gap-2 mb-1 shrink-0">
+                                  <Icons.Github size={14} className="text-slate-400" />
+                                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">GitHub Repos</span>
+                               </div>
+                               {githubProjects.map(proj => (
+                                  <a href="https://github.com/MiLab-Bit" target="_blank" key={proj.name} className="p-3 bg-white/5 rounded-xl border border-white/5 hover:border-slate-500/50 transition-all group flex flex-col justify-center flex-1">
+                                     <div className="flex justify-between items-center mb-1.5 text-white">
+                                        <h4 className="text-xs font-mono font-bold tracking-wide group-hover:text-indigo-400 transition-colors uppercase">{proj.name}</h4>
+                                        <Icons.ExternalLink size={12} className="text-slate-500 opacity-0 group-hover:opacity-100" />
+                                     </div>
+                                     <p className="text-[10px] text-slate-400 leading-relaxed font-serif-poetic line-clamp-2">{proj.desc}</p>
+                                  </a>
+                               ))}
+                            </div>
+                            <div className="flex flex-col gap-3">
+                               <div className="flex items-center gap-2 mb-1 shrink-0 text-white">
+                                  <Icons.Box size={14} className="text-slate-400" />
+                                  <span className="text-[10px] font-mono text-slate-400 uppercase tracking-widest font-bold">Production</span>
+                               </div>
+                               <a href="https://clawhub.ai/MiLab-Bit/visual-essay-engine" target="_blank" className="p-4 bg-black/40 rounded-xl border border-white/5 hover:border-slate-500/50 transition-all group flex flex-col justify-center flex-1 relative overflow-hidden">
+                                  <h4 className="text-xs font-mono font-bold tracking-wide uppercase mb-2 text-white">Visual Essay Engine</h4>
+                                  <p className="text-[10px] text-slate-400 leading-relaxed font-serif-poetic relative z-10">信息流与视觉重构自动化实践。</p>
+                               </a>
+                               <a href="https://clawhub.ai/MiLab-Bit/distribution-agent-publisher-pack" target="_blank" className="p-4 bg-black/40 rounded-xl border border-white/5 hover:border-slate-500/50 transition-all group flex flex-col justify-center flex-1 relative overflow-hidden text-white">
+                                  <h4 className="text-xs font-mono font-bold tracking-wide uppercase mb-2 text-white">Distribution Agent</h4>
+                                  <p className="text-[10px] text-slate-400 leading-relaxed font-serif-poetic relative z-10">探索分布式分发 Agentic 工作流。</p>
+                               </a>
+                            </div>
+                         </div>
+                     </div>
+                  </div>
+                </div>
+
+                {/* 第三列：背书与 Hub (28%) */}
+                <div className="w-full md:w-[28%] flex flex-col gap-6 h-full overflow-y-auto custom-scrollbar pr-2 pb-10">
+                  <div className="glass-panel rounded-[2rem] bg-white/[0.02] border border-white/10 shadow-2xl relative overflow-hidden group flex flex-col shrink-0">
+                     <div className="w-full relative overflow-hidden" style={{ aspectRatio: '3/4' }}> 
+                       <img src="https://i.imgur.com/ALiOSEt.jpeg" alt="专家照片" className="w-full h-full object-cover object-bottom opacity-90 group-hover:scale-105 transition-all duration-1000" />
+                       <div className="absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-[#05070a] to-transparent"></div>
+                     </div>
+                     <div className="relative z-10 p-6 bg-[#05070a]/80 flex flex-col justify-end text-white">
+                        <div className="flex items-center justify-between mb-3 text-white">
+                           <div className="flex items-center gap-2 bg-black/40 px-2 py-1 rounded-md border border-white/10 text-white">
+                             <Icons.UserCheck size={14} className="text-slate-300" />
+                             <h4 className="font-mono text-[9px] uppercase tracking-widest text-slate-200 font-bold">Guest Speaker</h4>
+                           </div>
+                           <a href="https://mp.weixin.qq.com/s/rKkxMMtx06A_gWtFCk98OA" target="_blank" className="p-2 bg-black/40 border border-white/10 rounded-lg hover:bg-white hover:text-black transition-colors text-white">
+                             <Icons.ArrowUpRight size={16} />
+                           </a>
+                        </div>
+                        <h3 className="font-bold text-base text-white tracking-wide mb-3 uppercase">AI 重构游戏娱乐生态</h3>
+                        <ul className="space-y-2">
+                           <li className="flex items-start gap-1.5 text-[10px] text-slate-300 leading-tight font-serif-poetic no-wrap-text"><span className="text-indigo-400 font-bold">•</span><span>建立量化检测模型评估 AIGC，避免内容同质化。</span></li>
+                           <li className="flex items-start gap-1.5 text-[10px] text-slate-300 leading-tight font-serif-poetic no-wrap-text"><span className="text-purple-400 font-bold">•</span><span>保留创作者与 AI 协作，守住游戏创意与审美底线。</span></li>
+                           <li className="flex items-start gap-1.5 text-[10px] text-slate-300 leading-tight font-serif-poetic no-wrap-text"><span className="text-blue-400 font-bold">•</span><span>MR/脑机接口等硬件结合将是未来的重要商业场景。</span></li>
+                        </ul>
+                     </div>
+                  </div>
+
+                  <div className="glass-panel rounded-[2rem] p-6 bg-white/[0.02] border border-white/10 shadow-2xl flex flex-col relative overflow-hidden shrink-0">
+                     <div className="absolute inset-0 opacity-[0.04] bg-cover bg-center mix-blend-color-dodge" style={{ backgroundImage: `url(${signalSociety[4]})` }}></div>
+                     <div className="flex items-center justify-between mb-4 relative z-10 text-white">
+                        <div className="flex items-center gap-2">
+                           <Icons.Box size={16} className="text-slate-400" />
+                           <h3 className="font-bold tracking-wider uppercase text-sm text-white">实验性 Hub</h3>
+                        </div>
+                     </div>
+                     <div className="flex flex-col gap-3 relative z-10 h-full text-white">
+                         <a href="https://mp.weixin.qq.com/s/MQzbmSNmG-7dlRdivHr7vQ" target="_blank" className="p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-indigo-600/20 transition-all group flex-1 flex flex-col justify-center">
+                            <div className="flex justify-between items-center mb-2">
+                               <div className="flex items-center gap-2 text-white">
+                                   <div className="w-6 h-6 rounded bg-slate-800 flex items-center justify-center border border-slate-600 group-hover:bg-slate-700 transition-colors">
+                                     <Icons.TrendingUp size={12} className="text-slate-300" />
+                                   </div>
+                                   <h4 className="font-bold text-sm tracking-wide text-white uppercase">AICQ Lab</h4>
+                               </div>
+                               <Icons.ArrowUpRight size={12} className="text-slate-400 opacity-50 group-hover:opacity-100" />
+                            </div>
+                            <p className="text-[10px] text-slate-400 leading-relaxed font-serif-poetic">这里是一个分布式实验室，也是一个Web4研究前哨，不追逐波动，只拆解底层逻辑。</p>
+                         </a>
+                         <a href="https://www.notion.so/AI-Agentic-Web4-31520d7c9d7f80a79547dececa08a95a" target="_blank" className="p-4 rounded-xl bg-white/5 border border-white/5 hover:bg-purple-600/20 transition-all group flex-1 flex flex-col justify-center">
+                            <div className="flex justify-between items-center mb-2">
+                               <div className="flex items-center gap-2 text-white">
+                                   <div className="w-6 h-6 rounded bg-slate-800 flex items-center justify-center border border-slate-600 group-hover:bg-slate-700 transition-colors">
+                                     <Icons.Layers size={12} className="text-slate-300" />
+                                   </div>
+                                   <div>
+                                      <h4 className="font-bold text-sm tracking-wide leading-none text-white uppercase">MiLab</h4>
+                                   </div>
+                               </div>
+                               <Icons.ArrowUpRight size={12} className="text-slate-400 opacity-50 group-hover:opacity-100" />
+                            </div>
+                            <p className="text-[10px] text-slate-400 leading-relaxed font-serif-poetic">创新咨询，帮助传统企业进入Web4时代。</p>
+                         </a>
+                     </div>
+                  </div>
+                </div>
+              </main>
+
+              {/* 底部全量声学控制栏 */}
+              <div className="glass-panel border-t border-white/10 h-24 shrink-0 relative z-50 flex items-center px-6 overflow-hidden bg-[#05070a]/90">
+                 <div className="flex items-center gap-4 shrink-0 relative z-10 pr-8 border-r border-white/10 bg-gradient-to-r from-[#05070a] to-transparent h-full text-white pointer-events-auto">
+                    <div className="w-12 h-12 rounded-full overflow-hidden border-2 border-indigo-500/50 shadow-[0_0_15px_rgba(99,102,241,0.4)] animate-spin-slow">
+                       <img src={signalSociety[7]} className="w-full h-full object-cover" alt="Vinyl" />
+                    </div>
+                    <div className="flex flex-col justify-center">
+                       <span className="font-bold text-sm text-white tracking-widest uppercase mb-1">吟游诗人 Lab</span>
+                       <div className="flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
+                          <span className="text-[9px] font-mono text-slate-400 uppercase tracking-tighter">Live Transmission</span>
+                       </div>
+                    </div>
+                 </div>
+
+                 {/* 纵向歌词流 */}
+                 <div className="flex-1 overflow-hidden h-full flex items-center justify-center relative marquee-mask-v pointer-events-none">
+                    <div className="animate-marquee-v flex flex-col items-center gap-4 py-8">
+                       {lyrics.concat(lyrics).map((line, idx) => (
+                         <div key={idx} className="flex flex-col items-center text-center shrink-0">
+                            <span className="text-white font-medium text-[15px]">{line.split(' / ')[0]}</span>
+                            <span className="text-[11px] text-slate-500 mt-1">{line.split(' / ')[1]}</span>
+                         </div>
+                       ))}
+                    </div>
+                 </div>
+
+                 {/* 嵌入式播放器 */}
+                 <div className="shrink-0 pl-6 border-l border-white/10 relative z-10 bg-gradient-to-l from-[#05070a] to-transparent h-full flex items-center pointer-events-auto">
+                    <div className="rounded-xl overflow-hidden shadow-2xl flex items-center bg-white/5 border border-white/10">
+                       <iframe frameBorder="0" marginWidth="0" marginHeight="0" width="330" height="86" src="https://music.163.com/outchain/player?type=2&id=3346179289&auto=1&height=66" allow="autoplay" title="NetEase Player"></iframe>
+                    </div>
+                 </div>
+              </div>
+            </div>
+          );
+        };
+
+        // 渲染 App
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
